@@ -136,6 +136,48 @@ export class SoundEngine {
       this._tone({ type: 'triangle', from: f, dur: 0.14, vol: 0.35, delay: i * 0.07 }));
   }
 
+  // v2.1 — Time Freeze: a cold descending shimmer, like glass cooling.
+  freeze() {
+    this._tone({ type: 'sine', from: 1568, to: 523, dur: 0.4, vol: 0.35 });
+    this._tone({ type: 'triangle', from: 2093, to: 784, dur: 0.35, vol: 0.25, delay: 0.06 });
+    this._noise({ dur: 0.25, vol: 0.12, freq: 4000 });
+  }
+
+  // v2.1 — Star Shield pickup: a bright major arpeggio, the "go smash
+  // things" signal.
+  starshield() {
+    [784, 988, 1175, 1568].forEach((f, i) =>
+      this._tone({ type: 'sine', from: f, dur: 0.14, vol: 0.35, delay: i * 0.06 }));
+  }
+
+  // v2.1 — Star smash: a short punchy crunch when an orb is smashed.
+  smash() {
+    this._tone({ type: 'square', from: 880, to: 220, dur: 0.12, vol: 0.35 });
+    this._noise({ dur: 0.14, vol: 0.3, freq: 1600 });
+    this._tone({ type: 'sine', from: 1319, dur: 0.1, vol: 0.3, delay: 0.04 });
+  }
+
+  // v2.1 — Splitter split: a quick double-pop as one orb becomes two.
+  split() {
+    this._tone({ type: 'sine', from: 659, to: 988, dur: 0.1, vol: 0.3 });
+    this._tone({ type: 'sine', from: 659, to: 988, dur: 0.1, vol: 0.3, delay: 0.09 });
+  }
+
+  // v2.1 — Boss Rush round: a low drum plus a rising horn, heavier with
+  // each round so the gauntlet sounds like it is escalating.
+  rushRound(n) {
+    const base = Math.max(98, 196 - n * 12);
+    this._tone({ type: 'sawtooth', from: base, to: base * 0.6, dur: 0.5, vol: 0.35 });
+    this._tone({ type: 'triangle', from: base * 2, to: base * 3, dur: 0.35, vol: 0.3, delay: 0.1 });
+    this._noise({ dur: 0.3, vol: 0.25, freq: 700, delay: 0.05 });
+  }
+
+  // v2.1 — Rush round cleared: a triumphant little fanfare.
+  rushClear() {
+    [523, 659, 784, 1047, 1319].forEach((f, i) =>
+      this._tone({ type: 'triangle', from: f, dur: 0.16, vol: 0.4, delay: i * 0.07 }));
+  }
+
   click() {
     this._tone({ type: 'square', from: 660, dur: 0.05, vol: 0.2 });
   }

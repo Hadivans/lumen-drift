@@ -5,9 +5,12 @@
 import {
   ARENA, PALETTE, PLAYER, SHARD, VOID_ORB, SPAWN, POWERUP, HEARTS, STORAGE_KEY,
   SEEKER, NOVA, SURGE, MAW, DOUBLE, COMBO_MILESTONES, HIT_STOP_SECONDS,
+  BOSS_RUSH, FREEZE, STARSHIELD, SPLITTER, THEMES, THEME_EVERY_LEVELS,
+  RUSH_STORAGE_KEY,
 } from './config.js';
 import {
   Player, Shard, VoidOrb, SeekerOrb, VoidMaw, Shockwave,
+  SplitterOrb, SplitterChild,
   PowerUp, Particle, Floater, burst, ringBurst,
 } from './entities.js';
 import { SoundEngine } from './audio.js';
@@ -32,6 +35,20 @@ export class Game {
     this.powerups = [];
     this.particles = [];
     this.floaters = [];
+    // v2.1 — Boss Rush state: which mode this run is, which round of the
+    // rush, and the breather clock between rounds. Classic runs leave all
+    // of this at its resting values.
+    this.mode = 'classic'; // 'classic' | 'rush'
+    this.rushRound = 0;
+    this.rushPhase = 'idle'; // 'idle' | 'breather' | 'fight' | 'cleared'
+    this.rushTimer = 0;
+    this.rushMawsToSpawn = 0;
+    this.rushMawsSpawned = 0;
+    this.rushBest = 0;
+    this.splitters = []; // v2.1: teal orbs that split when dodged
+    this.splitKids = []; // v2.1: the fast children of a dodged splitter
+    this.freezeUntil = 0; // v2.1: Time Freeze timer
+    this.starUntil = 0; // v2.1: Star Shield timer
     this.score = 0;
     this.best = 0;
     this.combo = 0;
@@ -47,6 +64,7 @@ export class Game {
     this.hitStop = 0; // v2: freeze frames after a hit
     // v2 — run stats: the story of this run, shown on the game-over
     // screen so a good run reads as more than one number.
+    // v2.1: rush rounds, freezes, star smashes and splitter splits join.
     this.stats = {
       orbsDodged: 0,
       seekersDodged: 0,
@@ -55,6 +73,11 @@ export class Game {
       surgesSeen: 0,
       mawsSeen: 0,
       nearMisses: 0,
+      rushRoundsCleared: 0,
+      freezesUsed: 0,
+      starSmashes: 0,
+      splittersSplit: 0,
+      splitKidsDodged: 0,
     };
     this.shake = 0;
     this.flash = 0;
@@ -62,8 +85,10 @@ export class Game {
     this.powerupIndex = 0;
     try {
       this.best = Number(localStorage.getItem(STORAGE_KEY) || 0) || 0;
+      this.rushBest = Number(localStorage.getItem(RUSH_STORAGE_KEY) || 0) || 0;
     } catch {
       this.best = 0;
+      this.rushBest = 0;
     }
   }
 
@@ -81,6 +106,34 @@ export class Game {
     return this.time < this.surgeUntil;
   }
 
+  // v2.1 — Boss Rush is the mode of this run, not a timer.
+  get isRush() {
+    return this.mode === 'rush';
+  }
+
+  // v2.1 — Time Freeze is live while its timer runs: the world hangs,
+  // the ship still flies.
+  get frozen() {
+    return this.time < this.freezeUntil;
+  }
+
+  // v2.1 — the Star Shield burns while its timer runs: touching a void
+  // orb smashes it for points instead of costing a heart.
+  get starActive() {
+    return this.time < this.starUntil;
+  }
+
+  // v2.1 — the sky's theme: every THEME_EVERY_LEVELS levels the nebula
+  // shifts hue. Level 1–4 is the classic indigo; the table cycles after.
+  get theme() {
+    const idx = Math.floor((this.level - 1) / THEME_EVERY_LEVELS) % THEMES.length;
+    return THEMES[idx];
+  }
+
+  get themeName() {
+    return this.theme.name;
+  }
+
   get multiplier() {
     return Math.min(1 + Math.floor(this.combo / SHARD.comboStep), SHARD.comboCap);
   }
@@ -89,8 +142,9 @@ export class Game {
     return this.shardsThisLevel / SPAWN.shardsPerLevel;
   }
 
-  start() {
+  start(mode = 'classic') {
     this.state = STATES.PLAYING;
+    this.mode = mode === 'rush' ? 'rush' : 'classic';
     this.time = 0;
     this.player.reset(ARENA.width / 2, ARENA.height - 110);
     this.shards = [];
@@ -101,6 +155,16 @@ export class Game {
     this.powerups = [];
     this.particles = [];
     this.floaters = [];
+    // v2.1 — a fresh run clears the rush, the splitters and the new timers.
+    this.rushRound = 0;
+    this.rushPhase = 'idle';
+    this.rushTimer = 0;
+    this.rushMawsToSpawn = 0;
+    this.rushMawsSpawned = 0;
+    this.splitters = [];
+    this.splitKids = [];
+    this.freezeUntil = 0;
+    this.starUntil = 0;
     this.score = 0;
     this.combo = 0;
     this.bestCombo = 0;
@@ -121,11 +185,77 @@ export class Game {
       surgesSeen: 0,
       mawsSeen: 0,
       nearMisses: 0,
+      rushRoundsCleared: 0,
+      freezesUsed: 0,
+      starSmashes: 0,
+      splittersSplit: 0,
+      splitKidsDodged: 0,
     };
     this.shake = 0;
     this.flash = 0;
     this.sound.unlock();
     this.sound.click();
+    // v2.1 — a rush run opens with round 1's breather, not the classic
+    // spawn director. The first maw arrives after the calm.
+    if (this.isRush) this.beginRushRound(1);
+  }
+
+  // v2.1 — Boss Rush round setup: count the maws for this round, open a
+  // breather so the player can reposition, and announce the round. The
+  // maws themselves arrive one by one once the breather ends.
+  beginRushRound(n) {
+    this.rushRound = n;
+    const extra = Math.floor((n - 1) / BOSS_RUSH.extraMawEveryRounds);
+    this.rushMawsToSpawn = Math.min(BOSS_RUSH.mawsPerRoundBase + extra, BOSS_RUSH.mawsCap);
+    this.rushMawsSpawned = 0;
+    this.rushPhase = 'breather';
+    this.rushTimer = BOSS_RUSH.breatherSeconds;
+    this.floaters.push(new Floater(
+      ARENA.width / 2, ARENA.height * 0.35, `BOSS RUSH — ROUND ${n}`, PALETTE.rush, true,
+    ));
+    this.floaters.push(new Floater(
+      ARENA.width / 2, ARENA.height * 0.35 + 40,
+      n === 1 ? 'SURVIVE THE MAWS!' : `${this.rushMawsToSpawn} MAW${this.rushMawsToSpawn > 1 ? 'S' : ''} INCOMING`,
+      PALETTE.hudText,
+    ));
+    this.sound.rushRound(n);
+  }
+
+  // v2.1 — a rush maw, scaled by the round: faster sweeps and quicker
+  // spit as the rounds climb. Maws spread across the top on arrival so
+  // two of them never stack on one lane.
+  spawnRushMaw() {
+    const count = this.rushMawsSpawned;
+    const slots = Math.max(1, this.rushMawsToSpawn);
+    const x = ARENA.width * (count + 1) / (slots + 1);
+    const maw = new VoidMaw(x, BOSS_RUSH.mawY);
+    const speedMul = 1 + BOSS_RUSH.mawSpeedPerRound * (this.rushRound - 1);
+    maw.vx = Math.abs(maw.vx) * speedMul * (count % 2 === 0 ? 1 : -1);
+    maw.spitTimer = 1.0;
+    maw._rushSpit = MAW.spitInterval * Math.pow(1 - BOSS_RUSH.spitFasterPerRound, this.rushRound - 1);
+    this.maws.push(maw);
+    this.rushMawsSpawned += 1;
+    this.stats.mawsSeen += 1;
+    this.shake = Math.max(this.shake, 6);
+    this.sound.maw();
+  }
+
+  // v2.1 — a rush round is cleared when every maw it spawned is gone:
+  // left the arena after its life, or smashed by a Nova or a star. The
+  // bonus grows with the round, then the next breather opens.
+  clearRushRound() {
+    const bonus = BOSS_RUSH.roundBonusBase + BOSS_RUSH.roundBonusPerRound * (this.rushRound - 1);
+    this.score += bonus;
+    this.stats.rushRoundsCleared += 1;
+    this.floaters.push(new Floater(
+      ARENA.width / 2, ARENA.height * 0.42, `ROUND ${this.rushRound} CLEARED!`, PALETTE.gold, true,
+    ));
+    this.floaters.push(new Floater(
+      ARENA.width / 2, ARENA.height * 0.42 + 38, `+${bonus} BONUS`, PALETTE.hudText,
+    ));
+    ringBurst(this.particles, ARENA.width / 2, ARENA.height * 0.4, PALETTE.gold, 30, 260);
+    this.sound.rushClear();
+    this.beginRushRound(this.rushRound + 1);
   }
 
   togglePause() {
@@ -142,12 +272,24 @@ export class Game {
     burst(this.particles, this.player.x, this.player.y, PALETTE.player, 42, 320);
     burst(this.particles, this.player.x, this.player.y, PALETTE.voidOrb, 24, 220);
     this.shake = 14;
-    if (this.score > this.best) {
+    // v2.1 — a classic run measures itself against the classic best only;
+    // a rush run never pollutes the classic board.
+    if (!this.isRush && this.score > this.best) {
       this.best = this.score;
       try {
         localStorage.setItem(STORAGE_KEY, String(this.best));
       } catch {
         // storage unavailable — best score just lives for this session
+      }
+    }
+    // v2.1 — Boss Rush keeps its own best, so a rush run never pollutes
+    // the classic board and the title can show both.
+    if (this.isRush && this.score > this.rushBest) {
+      this.rushBest = this.score;
+      try {
+        localStorage.setItem(RUSH_STORAGE_KEY, String(this.rushBest));
+      } catch {
+        // storage unavailable — rush best just lives for this session
       }
     }
   }
@@ -189,6 +331,13 @@ export class Game {
         this.seekers.push(new SeekerOrb(
           40 + Math.random() * (ARENA.width - 80), -30,
           (SEEKER.fallMin + Math.random() * (SEEKER.fallMax - SEEKER.fallMin)) * speedMul,
+        ));
+      } else if (this.level >= SPLITTER.minLevel && !this.surgeActive && Math.random() < SPLITTER.share) {
+        // v2.1 — from level 2, a share of void spawns are Splitters: dodge
+        // one and it becomes two fast children at the bottom edge.
+        this.splitters.push(new SplitterOrb(
+          40 + Math.random() * (ARENA.width - 80), -30,
+          (SPLITTER.fallMin + Math.random() * (SPLITTER.fallMax - SPLITTER.fallMin)) * speedMul,
         ));
       } else {
         const r = VOID_ORB.radiusMin + Math.random() * (VOID_ORB.radiusMax - VOID_ORB.radiusMin);
@@ -265,6 +414,54 @@ export class Game {
     this.sound.nova();
   }
 
+  // v2.1 — Time Freeze: stop the world for a few seconds. The timer is
+  // the whole effect — the update loop checks `frozen` and skips every
+  // entity's motion while it runs, so shards hang mid-air to harvest.
+  triggerFreeze() {
+    this.freezeUntil = this.time + FREEZE.seconds;
+    this.stats.freezesUsed += 1;
+    this.floaters.push(new Floater(
+      ARENA.width / 2, ARENA.height * 0.3, 'TIME FREEZE!', PALETTE.freeze, true,
+    ));
+    ringBurst(this.particles, this.player.x, this.player.y, PALETTE.freeze, 26, 240);
+    this.sound.freeze();
+  }
+
+  // v2.1 — Star smash: while the star burns, a void threat that touches
+  // the ship is destroyed for points instead of costing a heart. The
+  // burst and floater sell the smash; the score is the reward for diving
+  // into danger on purpose.
+  smashOrb(orb) {
+    orb.dead = true;
+    const pts = STARSHIELD.smashPoints * (this.doubleActive ? DOUBLE.factor : 1);
+    this.score += pts;
+    this.stats.starSmashes += 1;
+    burst(this.particles, orb.x, orb.y, PALETTE.starshield, 14, 260);
+    ringBurst(this.particles, orb.x, orb.y, PALETTE.starshield, 10, 180);
+    this.floaters.push(new Floater(orb.x, orb.y - 16, `SMASH! +${pts}`, PALETTE.starshield));
+    this.sound.smash();
+  }
+
+  // v2.1 — a dodged splitter becomes two children. They spawn at the
+  // bottom edge where the parent slipped past, offset left and right, and
+  // drop fast with a wobble. The parent is marked split so it only ever
+  // happens once.
+  splitSplitter(sp) {
+    sp.split = true;
+    sp.dead = true;
+    this.stats.splittersSplit += 1;
+    for (const side of [-1, 1]) {
+      this.splitKids.push(new SplitterChild(
+        Math.max(20, Math.min(ARENA.width - 20, sp.x + side * SPLITTER.childSpread)),
+        ARENA.height - 80,
+        SPLITTER.childSpeed * (0.9 + Math.random() * 0.25),
+      ));
+    }
+    burst(this.particles, sp.x, ARENA.height - 30, PALETTE.splitter, 12, 180);
+    this.floaters.push(new Floater(sp.x, ARENA.height - 60, 'SPLIT!', PALETTE.splitter));
+    this.sound.split();
+  }
+
   // v2 — Combo milestones: a big celebration floater, a bonus and a
   // fanfare when the streak crosses one of the milestone counts.
   checkMilestones() {
@@ -339,6 +536,7 @@ export class Game {
     const colors = {
       shield: PALETTE.shield, magnet: PALETTE.magnet, slow: PALETTE.slow,
       nova: PALETTE.nova, double: PALETTE.double,
+      freeze: PALETTE.freeze, starshield: PALETTE.starshield,
     };
     burst(this.particles, p.x, p.y, colors[p.kind] || PALETTE.shield, 16, 200);
     if (p.kind === 'shield') {
@@ -362,6 +560,17 @@ export class Game {
       this.doubleUntil = this.time + DOUBLE.seconds;
       this.floaters.push(new Floater(p.x, p.y - 14, '2X SCORE 8s', PALETTE.double));
       this.sound.doubleUp();
+    } else if (p.kind === 'freeze') {
+      // v2.1 — Time Freeze: the world hangs for three seconds while the
+      // ship keeps flying. Harvest the frozen shards.
+      this.floaters.push(new Floater(p.x, p.y - 14, 'FREEZE!', PALETTE.freeze));
+      this.triggerFreeze();
+    } else if (p.kind === 'starshield') {
+      // v2.1 — Star Shield: three seconds where touching a void orb
+      // smashes it for points instead of costing a heart.
+      this.starUntil = this.time + STARSHIELD.seconds;
+      this.floaters.push(new Floater(p.x, p.y - 14, 'STAR SHIELD 3s', PALETTE.starshield));
+      this.sound.starshield();
     }
   }
 
@@ -407,20 +616,32 @@ export class Game {
     this.player.update(dt, px, py, input.axes());
     this.player.clampTo(ARENA.width, ARENA.height);
 
-    this.spawnTick(dt);
+    // v2.1 — frozen world: entity motion and spawns run on a zero clock
+    // while the freeze burns, but the ship still flies and collisions
+    // still resolve, so frozen shards are there to harvest.
+    const edt = this.frozen ? 0 : dt;
+    // v2.1 — Rush mode runs its own director: no classic spawns, no
+    // shards, no power-ups. The breather counts down, then maws arrive.
+    if (this.isRush) {
+      this.rushTick(edt);
+    } else {
+      this.spawnTick(edt);
+    }
     const ts = this.timeScale;
     const magnet = this.player.magnetActive && this.time < this.player.magnetUntil;
-    for (const s of this.shards) s.update(dt, ts, this.player, magnet);
-    for (const o of this.orbs) o.update(dt, ts);
-    for (const sk of this.seekers) sk.update(dt, ts, this.player);
-    for (const p of this.powerups) p.update(dt, ts);
+    for (const s of this.shards) s.update(edt, ts, this.player, magnet);
+    for (const o of this.orbs) o.update(edt, ts);
+    for (const sk of this.seekers) sk.update(edt, ts, this.player);
+    for (const p of this.powerups) p.update(edt, ts);
+    for (const sp of this.splitters) sp.update(edt, ts);
+    for (const k of this.splitKids) k.update(edt, ts);
 
     // v2 — the Maw sweeps and spits. Each fan is three small void orbs
     // fanning down from the maw's mouth.
     for (const m of this.maws) {
-      m.update(dt, ts);
-      if (m.wantsToSpit) {
-        m.resetSpit(MAW.spitInterval);
+      m.update(edt, ts);
+      if (m.wantsToSpit && !this.frozen) {
+        m.resetSpit(m._rushSpit || MAW.spitInterval);
         for (let i = -1; i <= 1; i++) {
           this.orbs.push(new VoidOrb(
             m.x + i * 34, m.y + m.radius * 0.6,
@@ -457,7 +678,10 @@ export class Game {
         this.sound.nearMiss();
       }
       if (d < o.radius + p.radius - 2) {
-        if (!p.invulnerable) this.hitOrb(o);
+        // v2.1 — a burning star smashes the orb for points; otherwise a
+        // touch costs a heart unless the ship is already invulnerable.
+        if (this.starActive) this.smashOrb(o);
+        else if (!p.invulnerable) this.hitOrb(o);
         else o.dead = true;
       } else if (o.y > ARENA.height + 40) {
         o.dead = true;
@@ -477,11 +701,57 @@ export class Game {
         this.sound.nearMiss();
       }
       if (d < sk.radius + p.radius - 2) {
-        if (!p.invulnerable) this.hitOrb(sk);
+        // v2.1 — a burning star smashes the seeker for points, same as
+        // any other void threat. Otherwise it costs a heart as usual.
+        if (this.starActive) this.smashOrb(sk);
+        else if (!p.invulnerable) this.hitOrb(sk);
         else sk.dead = true;
       } else if (sk.y > ARENA.height + 40 || sk.x < -40 || sk.x > ARENA.width + 40) {
         sk.dead = true;
         this.stats.seekersDodged += 1;
+      }
+    }
+    // v2.1 — Splitters fall like orbs, but a clean dodge is punished: a
+    // splitter that slips past the bottom edge becomes two fast children.
+    // A touch costs a heart, unless a burning star smashes it first.
+    for (const sp of this.splitters) {
+      if (sp.dead) continue;
+      const d = Math.hypot(sp.x - p.x, sp.y - p.y);
+      if (!sp.nearMissed && d < VOID_ORB.nearMissRadius + p.radius && d >= sp.radius + p.radius) {
+        sp.nearMissed = true;
+        this.score += VOID_ORB.nearMissPoints;
+        this.stats.nearMisses += 1;
+        this.floaters.push(new Floater(p.x, p.y - 34, `CLOSE! +${VOID_ORB.nearMissPoints}`, PALETTE.hudText));
+        this.sound.nearMiss();
+      }
+      if (d < sp.radius + p.radius - 2) {
+        if (this.starActive) this.smashOrb(sp);
+        else if (!p.invulnerable) this.hitOrb(sp);
+        else sp.dead = true;
+      } else if (sp.crossedBottom) {
+        this.splitSplitter(sp);
+      }
+    }
+    // v2.1 — Splitter children: small, fast, wobbly, and they never split
+    // again. Same heart cost on touch, same close-call bonus, same star
+    // smash. Dodging one for good is a small victory.
+    for (const k of this.splitKids) {
+      if (k.dead) continue;
+      const d = Math.hypot(k.x - p.x, k.y - p.y);
+      if (!k.nearMissed && d < VOID_ORB.nearMissRadius + p.radius && d >= k.radius + p.radius) {
+        k.nearMissed = true;
+        this.score += VOID_ORB.nearMissPoints;
+        this.stats.nearMisses += 1;
+        this.floaters.push(new Floater(p.x, p.y - 34, `CLOSE! +${VOID_ORB.nearMissPoints}`, PALETTE.hudText));
+        this.sound.nearMiss();
+      }
+      if (d < k.radius + p.radius - 2) {
+        if (this.starActive) this.smashOrb(k);
+        else if (!p.invulnerable) this.hitOrb(k);
+        else k.dead = true;
+      } else if (k.y > ARENA.height + 40) {
+        k.dead = true;
+        this.stats.splitKidsDodged += 1;
       }
     }
     // v2 — Touching the Maw itself costs a heart, same as an orb. It sits
@@ -507,5 +777,36 @@ export class Game {
     this.seekers = this.seekers.filter((sk) => !sk.dead);
     this.maws = this.maws.filter((m) => !m.dead);
     this.powerups = this.powerups.filter((pu) => !pu.dead);
+    this.splitters = this.splitters.filter((sp) => !sp.dead);
+    this.splitKids = this.splitKids.filter((k) => !k.dead);
+  }
+
+  // v2.1 — Rush director: called every frame in rush mode with the
+  // frozen-aware clock. During the breather it counts down, then it
+  // releases the round's maws one per second; during the fight it waits
+  // for every maw and every spat orb to be gone, then clears the round
+  // and opens the next breather. Nothing else spawns in rush mode.
+  rushTick(dt) {
+    if (this.rushPhase === 'breather') {
+      this.rushTimer -= dt;
+      if (this.rushTimer <= 0) {
+        this.rushPhase = 'fight';
+        this.rushTimer = 1.0; // first maw arrives a beat after the calm
+      }
+      return;
+    }
+    if (this.rushPhase !== 'fight') return;
+    if (this.rushMawsSpawned < this.rushMawsToSpawn) {
+      this.rushTimer -= dt;
+      if (this.rushTimer <= 0) {
+        this.spawnRushMaw();
+        this.rushTimer = 1.0; // one maw per second, a steady drumbeat
+      }
+      return;
+    }
+    if (this.maws.length === 0 && this.orbs.length === 0) {
+      this.rushPhase = 'cleared';
+      this.clearRushRound();
+    }
   }
 }

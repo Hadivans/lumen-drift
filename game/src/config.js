@@ -38,6 +38,15 @@ export const PALETTE = {
   mawCore: '#1c0030',
   mawEye: '#ff2e88',
   surge: '#ffd166',
+  // v2.1 threats and treats.
+  splitter: '#2dd4a7',
+  splitterCore: '#d1fae5',
+  splitterKid: '#5eead4',
+  freeze: '#7dd3fc',
+  freezeTint: 'rgba(125, 211, 252, 0.16)',
+  starshield: '#fde047',
+  starRing: '#fef08a',
+  rush: '#fb7185',
 };
 
 export const PLAYER = {
@@ -88,7 +97,8 @@ export const POWERUP = {
   slowFactor: 0.45, // world time scale while slow is active
   // v2: the cycle now rotates through five kinds — the two new ones are
   // rarer treats that change how a run feels when they land.
-  kinds: ['shield', 'magnet', 'slow', 'nova', 'double'],
+  // v2.1: the cycle grows to seven — freeze and starshield join the rotation.
+  kinds: ['shield', 'magnet', 'slow', 'nova', 'double', 'freeze', 'starshield'],
 };
 
 // v2 — Seeker orbs: void orbs that steer toward the player's lane instead
@@ -155,3 +165,85 @@ export const HIT_STOP_SECONDS = 0.07;
 export const HEARTS = 3;
 
 export const STORAGE_KEY = 'lumen-drift-best';
+
+// v2.1 — Boss Rush: a separate mode picked from the title screen. One maw
+// per round at first, more as the rounds climb; a short breather between
+// rounds so the player can reposition; clearing a round pays a bonus that
+// grows with the round number. No shards fall in rush mode — the score
+// comes from surviving maws, near misses and smashes alone.
+export const BOSS_RUSH = {
+  breatherSeconds: 2.5, // calm between rounds: no spawns, maw-free sky
+  mawsPerRoundBase: 1, // round 1 starts with a single maw
+  extraMawEveryRounds: 2, // one more maw every two rounds
+  mawsCap: 4, // never more than four maws sweeping at once
+  roundBonusBase: 150, // bonus for clearing round 1
+  roundBonusPerRound: 100, // extra bonus per round cleared
+  mawSpeedPerRound: 0.12, // maw sweep speed grows 12% per round
+  spitFasterPerRound: 0.06, // maw spit interval shrinks 6% per round
+  mawY: 78, // how low the rush maws hang — lower than classic, closer
+};
+
+// v2.1 — Time Freeze: a power-up that stops the world for a few seconds.
+// Orbs, shards, seekers and maws hang in the air; the ship still flies
+// and can harvest frozen shards. A breather you earn, not a pause.
+export const FREEZE = {
+  seconds: 3,
+};
+
+// v2.1 — Star Shield: three seconds of invulnerability where touching a
+// void orb smashes it for points instead of costing a hull heart. Bold
+// play pays — dive into the danger while the star burns.
+export const STARSHIELD = {
+  seconds: 3,
+  smashPoints: 40, // points per orb smashed while the star burns
+};
+
+// v2.1 — Splitter orbs: teal orbs that punish a dodge. Slip past one and
+// it splits into two small, fast children at the bottom edge; touch one
+// and it costs a heart like any other orb. The children are quick but
+// small, and they never split again.
+export const SPLITTER = {
+  radius: 16,
+  fallMin: 70,
+  fallMax: 120,
+  childRadius: 9,
+  childSpeed: 200, // children drop fast, straight down with a wobble
+  childSpread: 46, // horizontal offset of each child from the parent
+  minLevel: 2, // splitters join from level 2
+  share: 0.22, // share of void spawns that become splitters (level 2+)
+};
+
+// v2.1 — Level themes: every five levels the nebula shifts its hue, so a
+// long run visibly changes sky. Each theme recolors the gradient, the
+// nebulae and the stars; the ship and the threats keep their own colors,
+// so the game stays readable in every sky.
+export const THEMES = [
+  {
+    name: 'INDIGO DRIFT',
+    bgTop: '#0b0620', bgMid: '#120a33', bgBottom: '#1a0b2e',
+    nebulaA: 'rgba(88, 40, 180, 0.20)', nebulaB: 'rgba(20, 140, 180, 0.14)',
+    nebulaC: 'rgba(200, 60, 140, 0.10)', star: '#cfe8ff',
+  },
+  {
+    name: 'EMERALD REACH',
+    bgTop: '#03180f', bgMid: '#062a1c', bgBottom: '#0a3324',
+    nebulaA: 'rgba(16, 185, 129, 0.20)', nebulaB: 'rgba(45, 212, 191, 0.14)',
+    nebulaC: 'rgba(250, 204, 21, 0.10)', star: '#d1fae5',
+  },
+  {
+    name: 'CRIMSON VEIL',
+    bgTop: '#1c0508', bgMid: '#2e0a12', bgBottom: '#3d0f1c',
+    nebulaA: 'rgba(225, 29, 72, 0.20)', nebulaB: 'rgba(249, 115, 22, 0.14)',
+    nebulaC: 'rgba(168, 85, 247, 0.10)', star: '#ffe4e6',
+  },
+  {
+    name: 'GOLDEN ABYSS',
+    bgTop: '#171104', bgMid: '#2a1d06', bgBottom: '#3a2a08',
+    nebulaA: 'rgba(245, 158, 11, 0.20)', nebulaB: 'rgba(217, 119, 6, 0.14)',
+    nebulaC: 'rgba(124, 58, 237, 0.10)', star: '#fef3c7',
+  },
+];
+
+export const THEME_EVERY_LEVELS = 5;
+
+export const RUSH_STORAGE_KEY = 'lumen-drift-best-rush';

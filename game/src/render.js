@@ -33,7 +33,7 @@ export class Renderer {
     if (game.shake > 0.3) {
       ctx.translate((Math.random() - 0.5) * game.shake, (Math.random() - 0.5) * game.shake);
     }
-    this.drawBackground(ctx, W, H, time, game.state === STATES.PLAYING ? 1 : 0.35);
+    this.drawBackground(ctx, W, H, time, game.state === STATES.PLAYING ? 1 : 0.35, game.theme);
     if (game.state === STATES.TITLE) {
       this.drawAmbientShards(ctx, game);
       this.drawTitle(ctx, game, W, H, time);
@@ -63,11 +63,16 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawBackground(ctx, W, H, time, speed) {
+  // v2.1 — the sky follows the level theme: the gradient, nebulae and
+  // stars take their colors from the theme of the current level band,
+  // so a long run visibly changes sky every five levels.
+  drawBackground(ctx, W, H, time, speed, theme) {
+    const t = theme || PALETTE;
+    const nebColors = [t.nebulaA, t.nebulaB, t.nebulaC];
     const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, PALETTE.bgTop);
-    g.addColorStop(0.55, PALETTE.bgMid);
-    g.addColorStop(1, PALETTE.bgBottom);
+    g.addColorStop(0, t.bgTop);
+    g.addColorStop(0.55, t.bgMid);
+    g.addColorStop(1, t.bgBottom);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
     // v2 — the nebulae now breathe: they drift slowly across the sky and
@@ -81,7 +86,7 @@ export class Renderer {
         n.x * W + driftX, n.y * H + driftY, 0,
         n.x * W + driftX, n.y * H + driftY, n.r * pulse,
       );
-      rg.addColorStop(0, n.color);
+      rg.addColorStop(0, nebColors[i] || n.color);
       rg.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = rg;
       ctx.fillRect(0, 0, W, H);
@@ -90,7 +95,7 @@ export class Renderer {
       const y = (s.y + time * 12 * s.z * speed) % H;
       const a = 0.35 + 0.55 * Math.abs(Math.sin(time * 1.4 + s.tw));
       ctx.globalAlpha = a * s.z;
-      ctx.fillStyle = PALETTE.star;
+      ctx.fillStyle = t.star;
       ctx.beginPath();
       ctx.arc(s.x, y, s.r, 0, Math.PI * 2);
       ctx.fill();
@@ -213,6 +218,57 @@ export class Renderer {
     ctx.restore();
   }
 
+  // v2.1 — Splitter orb: a teal orb with a dashed inner ring, so it
+  // reads as a different threat from the magenta orbs and the ember
+  // seekers. The dashed ring hints that it is about to come apart.
+  drawSplitter(ctx, sp, time) {
+    const pulse = 1 + Math.sin(sp.pulse) * 0.1;
+    ctx.save();
+    ctx.translate(sp.x, sp.y);
+    ctx.shadowColor = PALETTE.splitter;
+    ctx.shadowBlur = 16;
+    ctx.fillStyle = PALETTE.splitter;
+    ctx.beginPath();
+    ctx.arc(0, 0, sp.radius * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Dashed inner ring: the "about to split" tell.
+    ctx.strokeStyle = PALETTE.splitterCore;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.arc(0, 0, sp.radius * 0.62, sp.phase * 0.4, sp.phase * 0.4 + Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = PALETTE.splitterCore;
+    ctx.beginPath();
+    ctx.arc(0, 0, sp.radius * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // v2.1 — Splitter child: a small, bright teal dart. Smaller and faster
+  // than its parent, with a short tail so its speed reads at a glance.
+  drawSplitKid(ctx, k, time) {
+    ctx.save();
+    ctx.translate(k.x, k.y);
+    ctx.shadowColor = PALETTE.splitterKid;
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = PALETTE.splitterKid;
+    ctx.beginPath();
+    ctx.moveTo(0, -k.radius - 3);
+    ctx.lineTo(k.radius * 0.8, k.radius);
+    ctx.lineTo(-k.radius * 0.8, k.radius);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(0, 0, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   // v2 — Void Maw: a huge violet maw with a pulsing magenta eye, a ring of
   // teeth, and a jaw that opens and closes as it sweeps the arena.
   drawMaw(ctx, m, time) {
@@ -284,8 +340,9 @@ export class Renderer {
     const colors = {
       shield: PALETTE.shield, magnet: PALETTE.magnet, slow: PALETTE.slow,
       nova: PALETTE.nova, double: PALETTE.double,
+      freeze: PALETTE.freeze, starshield: PALETTE.starshield,
     };
-    const letters = { shield: 'S', magnet: 'M', slow: 'T', nova: 'N', double: '2' };
+    const letters = { shield: 'S', magnet: 'M', slow: 'T', nova: 'N', double: '2', freeze: 'F', starshield: '★' };
     const color = colors[p.kind] || PALETTE.shield;
     const bob = Math.sin(p.phase) * 3;
     ctx.save();
@@ -353,12 +410,39 @@ export class Renderer {
       ctx.stroke();
       ctx.restore();
     }
+    // v2.1 — while the Star Shield burns, a spinning gold star ring
+    // circles the ship, so the player knows touching orbs is safe — and
+    // profitable — right now.
+    if (game.starActive) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(time * 2.4);
+      ctx.strokeStyle = PALETTE.starRing;
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = PALETTE.starshield;
+      ctx.shadowBlur = 14;
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const r = i % 2 === 0 ? p.radius + 14 : p.radius + 6;
+        const a = (i / 10) * Math.PI * 2;
+        const x = Math.cos(a) * r;
+        const y = Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   drawEntities(ctx, game, time) {
     for (const s of game.shards) this.drawShard(ctx, s);
     for (const o of game.orbs) this.drawOrb(ctx, o, time);
     for (const sk of game.seekers) this.drawSeeker(ctx, sk, time);
+    for (const sp of game.splitters) this.drawSplitter(ctx, sp, time);
+    for (const k of game.splitKids) this.drawSplitKid(ctx, k, time);
     for (const m of game.maws) this.drawMaw(ctx, m, time);
     for (const w of game.shockwaves) this.drawShockwave(ctx, w);
     for (const pu of game.powerups) this.drawPowerUp(ctx, pu, time);
@@ -371,6 +455,26 @@ export class Renderer {
     }
     ctx.globalAlpha = 1;
     this.drawPlayer(ctx, game, time);
+    // v2.1 — while Time Freeze burns, the whole arena wears an icy wash
+    // with frost crystals creeping in from the corners, so the freeze is
+    // visible even before the player notices nothing is moving.
+    if (game.frozen) {
+      ctx.save();
+      ctx.fillStyle = PALETTE.freezeTint;
+      ctx.fillRect(0, 0, ARENA.width, ARENA.height);
+      ctx.strokeStyle = 'rgba(186, 230, 253, 0.7)';
+      ctx.lineWidth = 2;
+      const f = Math.sin(time * 5) * 4;
+      for (const [cx, cy, sgn] of [[0, 0, 1], [ARENA.width, 0, -1], [0, ARENA.height, 1], [ARENA.width, ARENA.height, -1]]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + sgn * 26, cy);
+        ctx.lineTo(cx, cy + (cy === 0 ? 26 : -26));
+        ctx.moveTo(cx + sgn * (16 + f), cy + (cy === 0 ? 8 : -8));
+        ctx.lineTo(cx + sgn * 8, cy + (cy === 0 ? 16 + f : -16 - f));
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     for (const f of game.floaters) {
       ctx.globalAlpha = Math.max(0, f.life);
       ctx.font = f.big ? 'bold 34px system-ui, sans-serif' : 'bold 16px system-ui, sans-serif';
@@ -456,6 +560,44 @@ export class Renderer {
       ctx.fillText(`×2 SCORE ${left.toFixed(0)}s`, 18, ey);
       ey -= 20;
     }
+    // v2.1 — Time Freeze timer, icy blue, counting down the stillness.
+    if (game.frozen) {
+      const left = Math.max(0, game.freezeUntil - game.time);
+      ctx.fillStyle = PALETTE.freeze;
+      ctx.fillText(`❄ FREEZE ${left.toFixed(0)}s`, 18, ey);
+      ey -= 20;
+    }
+    // v2.1 — Star Shield timer, gold, counting down the smash window.
+    if (game.starActive) {
+      const left = Math.max(0, game.starUntil - game.time);
+      ctx.fillStyle = PALETTE.starshield;
+      ctx.fillText(`★ STAR ${left.toFixed(0)}s — SMASH!`, 18, ey);
+      ey -= 20;
+    }
+    // v2.1 — Boss Rush round, big and red under the level bar, plus the
+    // breather countdown so the player knows when the next maw arrives.
+    if (game.isRush) {
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 18px system-ui, sans-serif';
+      ctx.fillStyle = PALETTE.rush;
+      ctx.shadowColor = PALETTE.rush;
+      ctx.shadowBlur = 12;
+      const phase = game.rushPhase === 'breather'
+        ? ` — NEXT IN ${Math.max(0, game.rushTimer).toFixed(0)}s`
+        : '';
+      ctx.fillText(`BOSS RUSH — ROUND ${game.rushRound}${phase}`, W / 2, 74);
+      ctx.shadowBlur = 0;
+      ctx.textAlign = 'left';
+    }
+    // v2.1 — the current sky theme, small under the level bar in classic
+    // mode, so a theme shift is named, not just felt.
+    if (!game.isRush && game.level >= 5) {
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 12px system-ui, sans-serif';
+      ctx.fillStyle = PALETTE.hudDim;
+      ctx.fillText(game.themeName, W / 2, 74);
+      ctx.textAlign = 'left';
+    }
     // v2 — Surge banner under the level bar, so the feast is unmissable.
     if (game.surgeActive) {
       ctx.textAlign = 'center';
@@ -517,22 +659,34 @@ export class Renderer {
     ctx.fillText('◆  Fly through golden shards to score — chain them for combos', cx, 288);
     ctx.fillText('◆  Spiky void orbs cost a hull heart — 3 hits and the drift ends', cx, 318);
     ctx.fillText('◆  Ember Seekers hunt your lane — keep moving, never camp', cx, 348);
-    ctx.fillText('◆  Grab S shield, M magnet, T slow, N nova, 2 double score', cx, 378);
+    ctx.fillText('◆  Teal Splitters divide when dodged — smash them or dodge twice', cx, 378);
+    ctx.fillText('◆  Grab S shield, M magnet, T slow, N nova, 2 double, F freeze, ★ star', cx, 408);
     ctx.fillStyle = PALETTE.hudDim;
     ctx.font = '15px system-ui, sans-serif';
-    ctx.fillText('MOUSE or WASD / ARROWS to fly  ·  P pause  ·  M mute', cx, 408);
+    ctx.fillText('MOUSE or WASD / ARROWS to fly  ·  P pause  ·  M mute', cx, 438);
     if (Math.floor(time * 1.6) % 2 === 0) {
       ctx.font = 'bold 24px system-ui, sans-serif';
       ctx.fillStyle = '#ffffff';
       ctx.shadowColor = PALETTE.player;
       ctx.shadowBlur = 16;
-      ctx.fillText('— CLICK OR PRESS SPACE TO START —', cx, 472);
+      ctx.fillText('— CLICK OR PRESS SPACE TO START —', cx, 486);
       ctx.shadowBlur = 0;
     }
-    if (game.best > 0) {
+    // v2.1 — Boss Rush, picked with B: a gauntlet of Void Maws, round
+    // after round, with its own best score on the line.
+    ctx.font = 'bold 20px system-ui, sans-serif';
+    ctx.fillStyle = PALETTE.rush;
+    ctx.shadowColor = PALETTE.rush;
+    ctx.shadowBlur = 12;
+    ctx.fillText('— OR PRESS B FOR BOSS RUSH —', cx, 516);
+    ctx.shadowBlur = 0;
+    if (game.best > 0 || game.rushBest > 0) {
       ctx.font = 'bold 16px system-ui, sans-serif';
       ctx.fillStyle = PALETTE.gold;
-      ctx.fillText(`BEST SCORE  ${game.best}`, cx, 522);
+      const parts = [];
+      if (game.best > 0) parts.push(`BEST ${game.best}`);
+      if (game.rushBest > 0) parts.push(`RUSH BEST ${game.rushBest}`);
+      ctx.fillText(parts.join('    ·    '), cx, 552);
     }
     ctx.restore();
   }
@@ -578,7 +732,10 @@ export class Renderer {
     ctx.shadowBlur = 0;
     ctx.fillStyle = PALETTE.hudText;
     ctx.font = '17px system-ui, sans-serif';
-    ctx.fillText(`Shards harvested  ${game.shardsCollected}      Level reached  ${game.level}      Best combo  x${game.bestCombo}`, cx, 330);
+    const modeLine = game.isRush
+      ? `Boss Rush — round ${game.rushRound} reached      Best combo  x${game.bestCombo}`
+      : `Shards harvested  ${game.shardsCollected}      Level reached  ${game.level}      Best combo  x${game.bestCombo}`;
+    ctx.fillText(modeLine, cx, 330);
     // v2 — run stats: the story of this run, one line, so a good run
     // reads as more than a single number.
     const st = game.stats;
@@ -589,15 +746,25 @@ export class Renderer {
     if (st.novasUsed > 0) bits.push(`${st.novasUsed} nova${st.novasUsed > 1 ? 's' : ''} · ${st.orbsClearedByNova} cleared`);
     if (st.surgesSeen > 0) bits.push(`${st.surgesSeen} surge${st.surgesSeen > 1 ? 's' : ''}`);
     if (st.mawsSeen > 0) bits.push(`${st.mawsSeen} maw${st.mawsSeen > 1 ? 's' : ''} survived`);
+    // v2.1 — the new run's story: rush rounds, freezes, star smashes and
+    // splitter splits, so a Boss Rush run reads as its own kind of run.
+    if (st.rushRoundsCleared > 0) bits.push(`${st.rushRoundsCleared} rush round${st.rushRoundsCleared > 1 ? 's' : ''} cleared`);
+    if (st.freezesUsed > 0) bits.push(`${st.freezesUsed} freeze${st.freezesUsed > 1 ? 's' : ''}`);
+    if (st.starSmashes > 0) bits.push(`${st.starSmashes} star smash${st.starSmashes > 1 ? 'es' : ''}`);
+    if (st.splittersSplit > 0) bits.push(`${st.splittersSplit} splitter${st.splittersSplit > 1 ? 's' : ''} split`);
+    if (st.splitKidsDodged > 0) bits.push(`${st.splitKidsDodged} split kids dodged`);
     if (bits.length > 0) {
       ctx.fillStyle = PALETTE.hudDim;
       ctx.font = '14px system-ui, sans-serif';
       ctx.fillText(bits.join('   ·   '), cx, 352);
     }
-    const isBest = game.score > 0 && game.score >= game.best;
+    // v2.1 — a rush run measures itself against the rush best, not the
+    // classic board, so the "new best" call is honest in both modes.
+    const shownBest = game.isRush ? game.rushBest : game.best;
+    const isBest = game.score > 0 && game.score >= shownBest;
     ctx.fillStyle = PALETTE.gold;
     ctx.font = 'bold 17px system-ui, sans-serif';
-    ctx.fillText(isBest ? `★ NEW BEST — ${game.best} ★` : `Best  ${game.best}`, cx, 382);
+    ctx.fillText(isBest ? `★ NEW ${game.isRush ? 'RUSH ' : ''}BEST — ${shownBest} ★` : `Best  ${shownBest}`, cx, 382);
     if (Math.floor(time * 1.6) % 2 === 0) {
       ctx.font = 'bold 22px system-ui, sans-serif';
       ctx.fillStyle = '#ffffff';

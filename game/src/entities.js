@@ -181,6 +181,61 @@ export class SeekerOrb {
   }
 }
 
+// v2.1 — SplitterOrb: a teal orb that punishes a clean dodge. It falls
+// like a plain orb, but when it slips past the bottom edge it splits into
+// two small, fast children instead of vanishing. Touching it costs a heart
+// like any other orb, so the choice is real: dodge it and face the kids,
+// or smash it with a Nova or a burning star.
+export class SplitterOrb {
+  constructor(x, y, fallSpeed) {
+    this.x = x;
+    this.y = y;
+    this.fallSpeed = fallSpeed;
+    this.radius = 16;
+    this.phase = Math.random() * Math.PI * 2;
+    this.pulse = 0;
+    this.nearMissed = false;
+    this.dead = false;
+    this.split = false; // true once it has already split at the edge
+  }
+
+  update(dt, timeScale) {
+    const t = dt * timeScale;
+    this.y += this.fallSpeed * t;
+    this.x += Math.sin(this.phase + this.y * 0.011) * 30 * t;
+    this.pulse += t * 5;
+  }
+
+  // True on the frame it crosses the bottom edge for the first time.
+  // The Game reads this, spawns the children, and marks it split.
+  get crossedBottom() {
+    return !this.split && this.y > 600 + 40;
+  }
+}
+
+// v2.1 — SplitterChild: what a dodged splitter becomes. Small, fast and
+// wobbly, dropping straight down from where its parent slipped past. The
+// children never split again — two is the whole family.
+export class SplitterChild {
+  constructor(x, y, fallSpeed) {
+    this.x = x;
+    this.y = y;
+    this.fallSpeed = fallSpeed;
+    this.radius = 9;
+    this.phase = Math.random() * Math.PI * 2;
+    this.pulse = 0;
+    this.nearMissed = false;
+    this.dead = false;
+  }
+
+  update(dt, timeScale) {
+    const t = dt * timeScale;
+    this.y += this.fallSpeed * t;
+    this.x += Math.sin(this.phase + this.y * 0.02) * 44 * t;
+    this.pulse += t * 7;
+  }
+}
+
 // v2 — VoidMaw: the boss-like event. A huge spiky maw that enters at the
 // top of the arena, sweeps left and right, and spits fans of small void
 // orbs down at the player. It never needs to be killed — survive its visit.

@@ -6,7 +6,7 @@ import { ARENA } from './config.js';
 import { Game, STATES } from './game.js';
 import { Renderer } from './render.js';
 import { Input } from './input.js';
-import { SeekerOrb } from './entities.js';
+import { SeekerOrb, SplitterOrb } from './entities.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -42,6 +42,16 @@ function handleAction() {
   }
 }
 
+// v2.1 — Boss Rush starts from the title screen with B (or from game
+// over, for an instant rematch in the gauntlet). Classic stays the
+// click / space path, so the old flow is untouched.
+function handleRushAction() {
+  game.sound.unlock();
+  if (game.state === STATES.TITLE || game.state === STATES.OVER) {
+    game.start('rush');
+  }
+}
+
 canvas.addEventListener('pointerdown', () => {
   // A click during play is just a sound unlock; state changes happen on
   // the pressed edge below so one click never double-triggers.
@@ -57,6 +67,10 @@ function frame(now) {
   // One-shot actions.
   if (input.pressed('pointer') || input.pressed(' ') || input.pressed('Enter')) {
     handleAction();
+  }
+  // v2.1 — B starts Boss Rush from the title or game-over screen.
+  if (input.pressed('b') || input.pressed('B')) {
+    handleRushAction();
   }
   if (input.pressed('p') || input.pressed('P') || input.pressed('Escape')) {
     if (game.state === STATES.PLAYING || game.state === STATES.PAUSED) {
@@ -84,10 +98,12 @@ requestAnimationFrame(frame);
 
 // Debug hook for automated play-testing and screenshots (harmless in play):
 // start the game, force a game over, or inspect the live state. The v2
-// helpers let a play-test force the new events on demand.
+// helpers let a play-test force the new events on demand. The v2.1 helpers
+// do the same for Boss Rush, the freeze, the star and the splitters.
 window.__lumen = {
   game,
   start: () => game.start(),
+  startRush: () => game.start('rush'),
   forceGameOver: () => {
     if (game.state === STATES.PLAYING) {
       game.hearts = 1;
@@ -111,5 +127,22 @@ window.__lumen = {
   },
   giveDouble: () => {
     if (game.state === STATES.PLAYING) game.doubleUntil = game.time + 8;
+  },
+  giveFreeze: () => {
+    if (game.state === STATES.PLAYING) game.triggerFreeze();
+  },
+  giveStar: () => {
+    if (game.state === STATES.PLAYING) game.starUntil = game.time + 3;
+  },
+  spawnSplitter: () => {
+    if (game.state === STATES.PLAYING) {
+      game.splitters.push(new SplitterOrb(game.player.x + 80, 60, 80));
+    }
+  },
+  setLevel: (n) => {
+    if (game.state === STATES.PLAYING) {
+      game.level = Math.max(1, n | 0);
+      game.shardsThisLevel = 0;
+    }
   },
 };
