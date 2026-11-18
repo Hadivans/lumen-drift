@@ -50,6 +50,16 @@ export class Renderer {
       ctx.fillStyle = `rgba(255, 45, 85, ${game.flash * 0.35})`;
       ctx.fillRect(-20, -20, W + 40, H + 40);
     }
+    // v2 — low-hull danger vignette: on the last heart the screen edges
+    // pulse red, so the player feels the danger without reading the HUD.
+    if (game.state === STATES.PLAYING && game.hearts === 1) {
+      const pulse = 0.12 + 0.1 * Math.sin(time * 4);
+      const dv = ctx.createRadialGradient(W / 2, H / 2, H * 0.42, W / 2, H / 2, H * 0.95);
+      dv.addColorStop(0, 'rgba(255,0,60,0)');
+      dv.addColorStop(1, `rgba(255, 0, 60, ${pulse})`);
+      ctx.fillStyle = dv;
+      ctx.fillRect(-20, -20, W + 40, H + 40);
+    }
     ctx.restore();
   }
 
@@ -60,9 +70,16 @@ export class Renderer {
     g.addColorStop(1, PALETTE.bgBottom);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
-    for (const n of this.nebulae) {
+    // v2 — the nebulae now breathe: they drift slowly across the sky and
+    // pulse, so the background feels alive instead of painted on.
+    for (let i = 0; i < this.nebulae.length; i++) {
+      const n = this.nebulae[i];
+      const driftX = Math.sin(time * 0.05 + i * 2.1) * 26;
+      const driftY = Math.cos(time * 0.04 + i * 1.7) * 18;
+      const pulse = 0.85 + 0.15 * Math.sin(time * 0.35 + i * 1.3);
       const rg = ctx.createRadialGradient(
-        n.x * W, n.y * H, 0, n.x * W, n.y * H, n.r,
+        n.x * W + driftX, n.y * H + driftY, 0,
+        n.x * W + driftX, n.y * H + driftY, n.r * pulse,
       );
       rg.addColorStop(0, n.color);
       rg.addColorStop(1, 'rgba(0,0,0,0)');
@@ -149,8 +166,126 @@ export class Renderer {
     ctx.restore();
   }
 
+  // v2 — Seeker orb: a small ember-orange hunter with a bright core and a
+  // short wisp trail, so it reads as a different threat from the magenta
+  // orbs at a glance.
+  drawSeeker(ctx, sk, time) {
+    const pulse = 1 + Math.sin(sk.pulse) * 0.14;
+    // Wisp trail.
+    for (let i = 0; i < sk.wisp.length; i++) {
+      const w = sk.wisp[i];
+      const f = i / sk.wisp.length;
+      ctx.globalAlpha = f * 0.45;
+      ctx.fillStyle = PALETTE.seeker;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, 2 + f * 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.save();
+    ctx.translate(sk.x, sk.y);
+    ctx.shadowColor = PALETTE.seeker;
+    ctx.shadowBlur = 16;
+    ctx.fillStyle = PALETTE.seeker;
+    ctx.beginPath();
+    ctx.arc(0, 0, sk.radius * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    // Spiky rim.
+    ctx.strokeStyle = PALETTE.seeker;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + sk.phase * 0.3;
+      ctx.moveTo(Math.cos(a) * sk.radius * 0.9, Math.sin(a) * sk.radius * 0.9);
+      ctx.lineTo(Math.cos(a) * sk.radius * 1.35, Math.sin(a) * sk.radius * 1.35);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = PALETTE.seekerCore;
+    ctx.beginPath();
+    ctx.arc(0, 0, sk.radius * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+    // Angry eye dot tracking the player is implied by the bright core.
+    ctx.fillStyle = '#7a2d00';
+    ctx.beginPath();
+    ctx.arc(0, 0, sk.radius * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // v2 — Void Maw: a huge violet maw with a pulsing magenta eye, a ring of
+  // teeth, and a jaw that opens and closes as it sweeps the arena.
+  drawMaw(ctx, m, time) {
+    const open = 0.25 + m.jaw * 0.55; // jaw open amount 0..1
+    ctx.save();
+    ctx.translate(m.x, m.y);
+    ctx.shadowColor = PALETTE.maw;
+    ctx.shadowBlur = 30;
+    ctx.fillStyle = PALETTE.maw;
+    ctx.beginPath();
+    ctx.arc(0, 0, m.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Teeth ring.
+    ctx.fillStyle = '#e9d5ff';
+    const teeth = 12;
+    for (let i = 0; i < teeth; i++) {
+      const a = (i / teeth) * Math.PI * 2 + m.phase * 0.15;
+      const r0 = m.radius * 0.82;
+      const r1 = m.radius * (0.82 - open * 0.34);
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a - 0.09) * r0, Math.sin(a - 0.09) * r0);
+      ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1);
+      ctx.lineTo(Math.cos(a + 0.09) * r0, Math.sin(a + 0.09) * r0);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Dark mouth.
+    ctx.fillStyle = PALETTE.mawCore;
+    ctx.beginPath();
+    ctx.arc(0, 0, m.radius * (0.62 - open * 0.18), 0, Math.PI * 2);
+    ctx.fill();
+    // The eye.
+    const eyePulse = 1 + Math.sin(m.phase * 2) * 0.12;
+    ctx.fillStyle = PALETTE.mawEye;
+    ctx.shadowColor = PALETTE.mawEye;
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.arc(0, 0, m.radius * 0.3 * eyePulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(-m.radius * 0.08, -m.radius * 0.08, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // v2 — Shockwave: the Nova blast's expanding ring, fading as it grows.
+  drawShockwave(ctx, w) {
+    ctx.save();
+    ctx.globalAlpha = w.alpha * 0.9;
+    ctx.strokeStyle = w.color;
+    ctx.lineWidth = 6 * (1 - w.progress) + 1;
+    ctx.shadowColor = w.color;
+    ctx.shadowBlur = 22;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, Math.max(1, w.radius), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = w.alpha * 0.35;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, Math.max(1, w.radius * 0.82), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   drawPowerUp(ctx, p, time) {
-    const colors = { shield: PALETTE.shield, magnet: PALETTE.magnet, slow: PALETTE.slow };
+    const colors = {
+      shield: PALETTE.shield, magnet: PALETTE.magnet, slow: PALETTE.slow,
+      nova: PALETTE.nova, double: PALETTE.double,
+    };
+    const letters = { shield: 'S', magnet: 'M', slow: 'T', nova: 'N', double: '2' };
     const color = colors[p.kind] || PALETTE.shield;
     const bob = Math.sin(p.phase) * 3;
     ctx.save();
@@ -169,7 +304,7 @@ export class Renderer {
     ctx.font = 'bold 15px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(p.kind === 'shield' ? 'S' : p.kind === 'magnet' ? 'M' : 'T', 0, 1);
+    ctx.fillText(letters[p.kind] || '?', 0, 1);
     ctx.restore();
   }
 
@@ -223,6 +358,9 @@ export class Renderer {
   drawEntities(ctx, game, time) {
     for (const s of game.shards) this.drawShard(ctx, s);
     for (const o of game.orbs) this.drawOrb(ctx, o, time);
+    for (const sk of game.seekers) this.drawSeeker(ctx, sk, time);
+    for (const m of game.maws) this.drawMaw(ctx, m, time);
+    for (const w of game.shockwaves) this.drawShockwave(ctx, w);
     for (const pu of game.powerups) this.drawPowerUp(ctx, pu, time);
     for (const pt of game.particles) {
       ctx.globalAlpha = pt.alpha;
@@ -309,6 +447,35 @@ export class Renderer {
       const left = Math.max(0, game.slowUntil - game.time);
       ctx.fillStyle = PALETTE.slow;
       ctx.fillText(`◔ SLOW ${left.toFixed(0)}s`, 18, ey);
+      ey -= 20;
+    }
+    // v2 — Double Score timer, loud in pink so the player plays bold.
+    if (game.doubleActive) {
+      const left = Math.max(0, game.doubleUntil - game.time);
+      ctx.fillStyle = PALETTE.double;
+      ctx.fillText(`×2 SCORE ${left.toFixed(0)}s`, 18, ey);
+      ey -= 20;
+    }
+    // v2 — Surge banner under the level bar, so the feast is unmissable.
+    if (game.surgeActive) {
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 18px system-ui, sans-serif';
+      ctx.fillStyle = PALETTE.surge;
+      ctx.shadowColor = PALETTE.surge;
+      ctx.shadowBlur = 12;
+      ctx.fillText('★ SHARD SURGE ★', W / 2, 74);
+      ctx.shadowBlur = 0;
+      ctx.textAlign = 'left';
+    }
+    // v2 — Maw warning at the top-right, so the sweep never surprises.
+    if (game.maws.length > 0) {
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 14px system-ui, sans-serif';
+      ctx.fillStyle = PALETTE.mawEye;
+      ctx.shadowColor = PALETTE.maw;
+      ctx.shadowBlur = 10;
+      ctx.fillText('⚠ VOID MAW', W - 20, 88);
+      ctx.shadowBlur = 0;
     }
     // Best (bottom-right)
     ctx.textAlign = 'right';
@@ -349,10 +516,11 @@ export class Renderer {
     ctx.font = '17px system-ui, sans-serif';
     ctx.fillText('◆  Fly through golden shards to score — chain them for combos', cx, 288);
     ctx.fillText('◆  Spiky void orbs cost a hull heart — 3 hits and the drift ends', cx, 318);
-    ctx.fillText('◆  Grab S (shield), M (magnet), T (slow time) power-ups', cx, 348);
+    ctx.fillText('◆  Ember Seekers hunt your lane — keep moving, never camp', cx, 348);
+    ctx.fillText('◆  Grab S shield, M magnet, T slow, N nova, 2 double score', cx, 378);
     ctx.fillStyle = PALETTE.hudDim;
     ctx.font = '15px system-ui, sans-serif';
-    ctx.fillText('MOUSE or WASD / ARROWS to fly  ·  P pause  ·  M mute', cx, 388);
+    ctx.fillText('MOUSE or WASD / ARROWS to fly  ·  P pause  ·  M mute', cx, 408);
     if (Math.floor(time * 1.6) % 2 === 0) {
       ctx.font = 'bold 24px system-ui, sans-serif';
       ctx.fillStyle = '#ffffff';
@@ -411,10 +579,25 @@ export class Renderer {
     ctx.fillStyle = PALETTE.hudText;
     ctx.font = '17px system-ui, sans-serif';
     ctx.fillText(`Shards harvested  ${game.shardsCollected}      Level reached  ${game.level}      Best combo  x${game.bestCombo}`, cx, 330);
+    // v2 — run stats: the story of this run, one line, so a good run
+    // reads as more than a single number.
+    const st = game.stats;
+    const bits = [];
+    if (st.orbsDodged > 0) bits.push(`${st.orbsDodged} orbs dodged`);
+    if (st.seekersDodged > 0) bits.push(`${st.seekersDodged} seekers dodged`);
+    if (st.nearMisses > 0) bits.push(`${st.nearMisses} close calls`);
+    if (st.novasUsed > 0) bits.push(`${st.novasUsed} nova${st.novasUsed > 1 ? 's' : ''} · ${st.orbsClearedByNova} cleared`);
+    if (st.surgesSeen > 0) bits.push(`${st.surgesSeen} surge${st.surgesSeen > 1 ? 's' : ''}`);
+    if (st.mawsSeen > 0) bits.push(`${st.mawsSeen} maw${st.mawsSeen > 1 ? 's' : ''} survived`);
+    if (bits.length > 0) {
+      ctx.fillStyle = PALETTE.hudDim;
+      ctx.font = '14px system-ui, sans-serif';
+      ctx.fillText(bits.join('   ·   '), cx, 352);
+    }
     const isBest = game.score > 0 && game.score >= game.best;
     ctx.fillStyle = PALETTE.gold;
     ctx.font = 'bold 17px system-ui, sans-serif';
-    ctx.fillText(isBest ? `★ NEW BEST — ${game.best} ★` : `Best  ${game.best}`, cx, 366);
+    ctx.fillText(isBest ? `★ NEW BEST — ${game.best} ★` : `Best  ${game.best}`, cx, 382);
     if (Math.floor(time * 1.6) % 2 === 0) {
       ctx.font = 'bold 22px system-ui, sans-serif';
       ctx.fillStyle = '#ffffff';

@@ -6,6 +6,7 @@ import { ARENA } from './config.js';
 import { Game, STATES } from './game.js';
 import { Renderer } from './render.js';
 import { Input } from './input.js';
+import { SeekerOrb } from './entities.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -82,7 +83,8 @@ canvas.focus();
 requestAnimationFrame(frame);
 
 // Debug hook for automated play-testing and screenshots (harmless in play):
-// start the game, force a game over, or inspect the live state.
+// start the game, force a game over, or inspect the live state. The v2
+// helpers let a play-test force the new events on demand.
 window.__lumen = {
   game,
   start: () => game.start(),
@@ -92,5 +94,22 @@ window.__lumen = {
       game.player.invuln = 0;
       game.hitOrb({ dead: false, x: game.player.x, y: game.player.y });
     }
+  },
+  spawnSeeker: () => {
+    if (game.state === STATES.PLAYING) {
+      game.seekers.push(new SeekerOrb(game.player.x + 60, 60, 70));
+    }
+  },
+  spawnMaw: () => {
+    if (game.state === STATES.PLAYING) game.spawnMaw();
+  },
+  startSurge: () => {
+    if (game.state === STATES.PLAYING) game.triggerSurge();
+  },
+  giveNova: () => {
+    if (game.state === STATES.PLAYING) game.detonateNova(game.player.x, game.player.y);
+  },
+  giveDouble: () => {
+    if (game.state === STATES.PLAYING) game.doubleUntil = game.time + 8;
   },
 };

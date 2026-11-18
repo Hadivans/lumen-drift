@@ -99,6 +99,43 @@ export class SoundEngine {
     this._tone({ type: 'sine', from: 880, to: 1320, dur: 0.08, vol: 0.25 });
   }
 
+  // v2 — Nova blast: a bright rising sweep plus a deep thump, so clearing
+  // the screen sounds as big as it looks.
+  nova() {
+    this._tone({ type: 'sawtooth', from: 180, to: 1400, dur: 0.35, vol: 0.3 });
+    this._tone({ type: 'sine', from: 1200, to: 2400, dur: 0.3, vol: 0.3, delay: 0.05 });
+    this._noise({ dur: 0.3, vol: 0.3, freq: 2400 });
+    [1047, 1319, 1568].forEach((f, i) =>
+      this._tone({ type: 'sine', from: f, dur: 0.18, vol: 0.3, delay: 0.12 + i * 0.06 }));
+  }
+
+  // v2 — Surge start: a quick rising arpeggio, the "feast is on" signal.
+  surge() {
+    [523, 659, 784, 1047, 1319].forEach((f, i) =>
+      this._tone({ type: 'triangle', from: f, dur: 0.12, vol: 0.35, delay: i * 0.05 }));
+  }
+
+  // v2 — Maw arrival: a low ominous sawtooth growl that warns the player
+  // something big just entered the arena.
+  maw() {
+    this._tone({ type: 'sawtooth', from: 110, to: 65, dur: 0.7, vol: 0.4 });
+    this._tone({ type: 'sawtooth', from: 165, to: 98, dur: 0.7, vol: 0.25, delay: 0.08 });
+    this._noise({ dur: 0.5, vol: 0.2, freq: 500 });
+  }
+
+  // v2 — Double Score pickup: two bright chimes, one octave apart.
+  doubleUp() {
+    this._tone({ type: 'sine', from: 1047, dur: 0.12, vol: 0.4 });
+    this._tone({ type: 'sine', from: 2093, dur: 0.2, vol: 0.35, delay: 0.09 });
+  }
+
+  // v2 — Combo milestone: a short fanfare that grows with the streak.
+  milestone(combo) {
+    const base = combo >= 48 ? 784 : 659;
+    [base, base * 1.25, base * 1.5].forEach((f, i) =>
+      this._tone({ type: 'triangle', from: f, dur: 0.14, vol: 0.35, delay: i * 0.07 }));
+  }
+
   click() {
     this._tone({ type: 'square', from: 660, dur: 0.05, vol: 0.2 });
   }

@@ -132,7 +132,7 @@ export class PowerUp {
   constructor(x, y, kind) {
     this.x = x;
     this.y = y;
-    this.kind = kind; // 'shield' | 'magnet' | 'slow'
+    this.kind = kind; // 'shield' | 'magnet' | 'slow' | 'nova' | 'double'
     this.radius = POWERUP.radius;
     this.phase = Math.random() * Math.PI * 2;
     this.dead = false;
@@ -142,6 +142,126 @@ export class PowerUp {
     const t = dt * timeScale;
     this.y += POWERUP.fallSpeed * t;
     this.phase += t * 2.4;
+  }
+}
+
+// v2 — SeekerOrb: a void orb that hunts. It falls slower than a plain orb,
+// but it steers sideways toward the player's current lane, so standing
+// still is no longer safe. Small, ember-orange, with a bright core that
+// reads as a different threat from the magenta orbs.
+export class SeekerOrb {
+  constructor(x, y, fallSpeed) {
+    this.x = x;
+    this.y = y;
+    this.fallSpeed = fallSpeed;
+    this.radius = 13;
+    this.vx = 0;
+    this.phase = Math.random() * Math.PI * 2;
+    this.pulse = 0;
+    this.nearMissed = false;
+    this.dead = false;
+    this.wisp = []; // short ember trail so its path is readable
+  }
+
+  update(dt, timeScale, player) {
+    const t = dt * timeScale;
+    // Home horizontally toward the player, capped so it stays dodgeable.
+    if (player) {
+      const dir = player.x > this.x ? 1 : -1;
+      this.vx += dir * 150 * t;
+      const cap = 150;
+      if (this.vx > cap) this.vx = cap;
+      if (this.vx < -cap) this.vx = -cap;
+    }
+    this.x += this.vx * t;
+    this.y += this.fallSpeed * t;
+    this.pulse += t * 6;
+    this.wisp.push({ x: this.x, y: this.y });
+    if (this.wisp.length > 7) this.wisp.shift();
+  }
+}
+
+// v2 — VoidMaw: the boss-like event. A huge spiky maw that enters at the
+// top of the arena, sweeps left and right, and spits fans of small void
+// orbs down at the player. It never needs to be killed — survive its visit.
+// Touching the maw itself costs a heart, same as an orb.
+export class VoidMaw {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.radius = 46;
+    this.vx = 135; // sweep direction, flips at the walls
+    this.spitTimer = 0.9; // first fan comes quickly so it reads at once
+    this.life = 14; // seconds on screen, then it sinks away
+    this.phase = Math.random() * Math.PI * 2;
+    this.jaw = 0; // jaw open amount, animated
+    this.dead = false;
+    this.leaving = false;
+  }
+
+  update(dt, timeScale) {
+    const t = dt * timeScale;
+    this.phase += t * 3;
+    this.jaw = 0.5 + 0.5 * Math.sin(this.phase * 1.4);
+    if (this.leaving) {
+      this.y -= 90 * t;
+      if (this.y < -90) this.dead = true;
+      return;
+    }
+    this.x += this.vx * t;
+    if (this.x < this.radius + 10) {
+      this.x = this.radius + 10;
+      this.vx = Math.abs(this.vx);
+    } else if (this.x > 960 - this.radius - 10) {
+      this.x = 960 - this.radius - 10;
+      this.vx = -Math.abs(this.vx);
+    }
+    this.spitTimer -= t;
+    this.life -= t;
+    if (this.life <= 0) this.leaving = true;
+  }
+
+  // True on the frames when a fan should be spat. The Game reads this and
+  // resets the timer, so the maw itself stays a dumb sweeper.
+  get wantsToSpit() {
+    return !this.leaving && this.spitTimer <= 0;
+  }
+
+  resetSpit(interval) {
+    this.spitTimer = interval;
+  }
+}
+
+// v2 — Shockwave: the Nova blast's expanding ring. Purely visual; the Game
+// applies the clear when the Nova is collected, the ring just sells it.
+export class Shockwave {
+  constructor(x, y, color, maxRadius, seconds) {
+    this.x = x;
+    this.y = y;
+    this.color = color;
+    this.maxRadius = maxRadius;
+    this.seconds = seconds;
+    this.life = seconds;
+  }
+
+  update(dt) {
+    this.life -= dt;
+  }
+
+  get alive() {
+    return this.life > 0;
+  }
+
+  get progress() {
+    return 1 - Math.max(0, this.life / this.seconds);
+  }
+
+  get radius() {
+    return this.maxRadius * this.progress;
+  }
+
+  get alpha() {
+    return Math.max(0, 1 - this.progress);
   }
 }
 
@@ -183,6 +303,22 @@ export function burst(particles, x, y, color, count, speed) {
       Math.cos(a) * s, Math.sin(a) * s,
       0.35 + Math.random() * 0.5,
       1.5 + Math.random() * 2.5,
+      color,
+    ));
+  }
+}
+
+// v2 — ringBurst: like burst, but the particles leave on evenly spaced
+// angles at one speed, so they read as a clean expanding ring. Used for
+// level-ups, milestones and the Nova blast.
+export function ringBurst(particles, x, y, color, count, speed) {
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2;
+    particles.push(new Particle(
+      x, y,
+      Math.cos(a) * speed, Math.sin(a) * speed,
+      0.5 + Math.random() * 0.35,
+      2 + Math.random() * 2,
       color,
     ));
   }
