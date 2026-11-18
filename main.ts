@@ -5,6 +5,18 @@
 // beside it into /output (or $MAKEFUN_OUTPUT_DIR outside the grader) and
 // writes /output/dossier.json with the kit's vendored buildDossier. It is
 // deterministic: the same repository always produces the same bytes.
+//
+// v2.1 — LUMEN DRIFT, second entry (same game, more to play).
+// New since v2: Boss Rush mode (press B on the title screen) — a gauntlet
+// of Void Maws, one more maw every two rounds, with a breather between
+// rounds and a separate rush best score. Two new power-ups: Time Freeze
+// (the world hangs for 3s while the ship keeps flying and harvesting)
+// and Star Shield (3s of invulnerability — touching a void orb smashes it
+// for points instead of costing a heart). Splitter orbs (level 2+) split
+// into two fast children when dodged cleanly at the bottom edge. And the
+// nebula now shifts hue every 5 levels (Indigo Drift, Emerald Reach,
+// Crimson Veil, Golden Abyss), named in the HUD from level 5.
+// Entry version: v2.1.
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
